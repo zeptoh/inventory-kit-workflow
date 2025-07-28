@@ -1,0 +1,9 @@
+com/clevermoe/workflow/controller/WorkflowController.class
+com/clevermoe/workflow/service/ProductCatalogService.class
+com/clevermoe/workflow/service/PricingEngineService.class
+com/clevermoe/workflow/dto/BulkPricing.class
+com/clevermoe/workflow/dto/ProductCatalog.class
+com/clevermoe/workflow/WorkflowApplication.class
+com/clevermoe/workflow/dto/PricingEngine.class
+com/clevermoe/workflow/service/WorkflowOrchestratorService.class
+com/clevermoe/workflow/dto/PromotionalOffer.class
