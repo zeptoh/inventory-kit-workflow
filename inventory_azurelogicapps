@@ -1,1 +1,206 @@
-
+{
+    "definition": {
+        "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+        "contentVersion": "1.0.0.0",
+        "triggers": {
+            "manual": {
+                "type": "Request",
+                "kind": "Http",
+                "inputs": {
+                    "schema": {}
+                }
+            }
+        },
+        "actions": {
+            "GetProductCatalog": {
+                "type": "Http",
+                "inputs": {
+                    "uri": "https://inventory.clevermoe.com/api/productcatalog",
+                    "method": "GET"
+                },
+                "runAfter": {}
+            },
+            "AddToCart": {
+                "type": "Compose",
+                "inputs": {
+                    "productId": "@body('GetProductCatalog')[0].productId",
+                    "price": "@body('GetProductCatalog')[0].price"
+                },
+                "runAfter": {
+                    "GetProductCatalog": [
+                        "Succeeded"
+                    ]
+                }
+            },
+            "GetPricing": {
+                "type": "Http",
+                "inputs": {
+                    "uri": "https://inventory.clevermoe.com/api/pricingengine/product",
+                    "method": "POST",
+                    "body": {
+                        "productId": "@outputs('AddToCart').productId"
+                    }
+                },
+                "runAfter": {
+                    "AddToCart": [
+                        "Succeeded"
+                    ]
+                }
+            },
+            "CheckInventory": {
+                "type": "Http",
+                "inputs": {
+                    "uri": "https://inventory.clevermoe.com/api/inventorymanagement/product",
+                    "method": "POST",
+                    "body": {
+                        "productId": "@outputs('AddToCart').productId"
+                    }
+                },
+                "runAfter": {
+                    "GetPricing": [
+                        "Succeeded"
+                    ]
+                }
+            },
+            "CalculateTax": {
+                "type": "Http",
+                "inputs": {
+                    "uri": "https://inventory.clevermoe.com/api/taxcalculation/product",
+                    "method": "POST",
+                    "body": {
+                        "productId": "@outputs('AddToCart').productId"
+                    }
+                },
+                "runAfter": {
+                    "CheckInventory": [
+                        "Succeeded"
+                    ]
+                }
+            },
+            "GetTariffCustoms": {
+                "type": "Http",
+                "inputs": {
+                    "uri": "https://inventory.clevermoe.com/api/tariffcustoms/product",
+                    "method": "POST",
+                    "body": {
+                        "productId": "@outputs('AddToCart').productId"
+                    }
+                },
+                "runAfter": {
+                    "CalculateTax": [
+                        "Succeeded"
+                    ]
+                }
+            },
+            "GetCustomerProfile": {
+                "type": "Http",
+                "inputs": {
+                    "uri": "https://inventory.clevermoe.com/api/customerprofile/find",
+                    "method": "POST",
+                    "body": {
+                        "email": "customer1@example.com"
+                    }
+                },
+                "runAfter": {
+                    "GetTariffCustoms": [
+                        "Succeeded"
+                    ]
+                }
+            },
+            "GetShippingOptions": {
+                "type": "Http",
+                "inputs": {
+                    "uri": "https://inventory.clevermoe.com/api/shippingoption/find",
+                    "method": "POST",
+                    "body": {
+                        "isLoyal": "@body('GetCustomerProfile').isLoyal",
+                        "zone": "@body('GetCustomerProfile').addressZone"
+                    }
+                },
+                "runAfter": {
+                    "GetCustomerProfile": [
+                        "Succeeded"
+                    ]
+                }
+            },
+            "GenerateQuotation": {
+                "type": "Http",
+                "inputs": {
+                    "uri": "https://inventory.clevermoe.com/api/quotation",
+                    "method": "POST",
+                    "body": {
+                        "customerId": "@body('GetCustomerProfile').id",
+                        "items": [
+                            {
+                                "productId": "@outputs('AddToCart').productId",
+                                "quantity": 5,
+                                "unitprice": "@body('GetPricing').basePrice",
+                                "taxAmount": "@body('CalculateTax').taxAmount",
+                                "dutyRate": "@body('GetTariffCustoms').dutyRate",
+                                "discountAmount": "@body('GetPricing').discount"
+                            }
+                        ],
+                        "deliveryCharge": "@body('GetShippingOptions')[0].cost",
+                        "estimatedDeliveryDays": "@body('GetShippingOptions')[0].estimatedDeliveryDays"
+                    }
+                },
+                "runAfter": {
+                    "GetShippingOptions": [
+                        "Succeeded"
+                    ]
+                }
+            },
+            "FinalizeOrder": {
+                "type": "Http",
+                "inputs": {
+                    "uri": "https://inventory.clevermoe.com/api/ordermanagement",
+                    "method": "POST",
+                    "body": {
+                        "productId": "@outputs('AddToCart').productId",
+                        "pricingId": "@body('GetPricing').id",
+                        "inventoryId": "@body('CheckInventory').id",
+                        "taxId": "@body('CalculateTax').id",
+                        "tariffId": "@body('GetTariffCustoms').id",
+                        "customerId": "@body('GetCustomerProfile').id",
+                        "shippingId": "@body('GetShippingOptions')[0].id",
+                        "quotationId": "@body('GenerateQuotation').id"
+                    }
+                },
+                "runAfter": {
+                    "GenerateQuotation": [
+                        "Succeeded"
+                    ]
+                }
+            },
+            "ExtractProductIds": {
+                "type": "Select",
+                "inputs": {
+                    "from": "@body('FinalizeOrder')?['quotation']?['items']",
+                    "select": "@item()?['productId']"
+                },
+                "runAfter": {
+                    "FinalizeOrder": [
+                        "Succeeded"
+                    ]
+                }
+            },
+            "GetRecommendations": {
+                "type": "Http",
+                "inputs": {
+                    "uri": "https://inventory.clevermoe.com/recommendations",
+                    "method": "POST",
+                    "body": {
+                        "customerId": "@body('GetCustomerProfile').id",
+                        "currentCart": "@outputs('ExtractProductIds').body"
+                    }
+                },
+                "runAfter": {
+                    "ExtractProductIds": [
+                        "Succeeded"
+                    ]
+                }
+            }
+        }
+    },
+    "kind": "Stateful"
+}
