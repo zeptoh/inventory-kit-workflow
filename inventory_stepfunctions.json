@@ -1,0 +1,221 @@
+{
+  "StartAt": "GetProductCatalog",
+  "States": {
+    "GetProductCatalog": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::http:invoke",
+      "Parameters": {
+        "ApiEndpoint": "https://inventory.clevermoe.com/api/productcatalog",
+        "Method": "GET",
+        "InvocationConfig": {
+          "ConnectionArn": "arn:aws:events:ap-south-1:174706800279:connection/Inventory-kit-connections/a98806fe-e61e-49f0-8dfb-8065dbe15ad3"
+        }
+      },
+      "ResultPath": "$.ProductCatalog",
+      "Next": "AddToCart"
+    },
+    "AddToCart": {
+      "Type": "Pass",
+      "Parameters": {
+        "productId.$": "$.ProductCatalog.ResponseBody[0].productId",
+        "price.$": "$.ProductCatalog.ResponseBody[0].price"
+      },
+      "ResultPath": "$.Cart",
+      "Next": "GetPricing"
+    },
+    "GetPricing": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::http:invoke",
+      "Parameters": {
+        "ApiEndpoint": "https://inventory.clevermoe.com/api/pricingengine/product",
+        "Method": "POST",
+        "InvocationConfig": {
+          "ConnectionArn": "arn:aws:events:ap-south-1:174706800279:connection/Inventory-kit-connections/a98806fe-e61e-49f0-8dfb-8065dbe15ad3"
+        },
+        "RequestBody": {
+          "productId.$": "$.Cart.productId"
+        }
+      },
+      "ResultPath": "$.Pricing",
+      "Next": "CheckInventory"
+    },
+    "CheckInventory": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::http:invoke",
+      "Parameters": {
+        "ApiEndpoint": "https://inventory.clevermoe.com/api/inventorymanagement/product",
+        "Method": "POST",
+        "InvocationConfig": {
+          "ConnectionArn": "arn:aws:events:ap-south-1:174706800279:connection/Inventory-kit-connections/a98806fe-e61e-49f0-8dfb-8065dbe15ad3"
+        },
+        "RequestBody": {
+          "productId.$": "$.Cart.productId"
+        }
+      },
+      "ResultPath": "$.Inventory",
+      "Next": "CalculateTax"
+    },
+    "CalculateTax": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::http:invoke",
+      "Parameters": {
+        "ApiEndpoint": "https://inventory.clevermoe.com/api/taxcalculation/product",
+        "Method": "POST",
+        "InvocationConfig": {
+          "ConnectionArn": "arn:aws:events:ap-south-1:174706800279:connection/Inventory-kit-connections/a98806fe-e61e-49f0-8dfb-8065dbe15ad3"
+        },
+        "RequestBody": {
+          "productId.$": "$.Cart.productId"
+        }
+      },
+      "ResultPath": "$.Tax",
+      "Next": "GetTariffCustoms"
+    },
+    "GetTariffCustoms": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::http:invoke",
+      "Parameters": {
+        "ApiEndpoint": "https://inventory.clevermoe.com/api/tariffcustoms/product",
+        "Method": "POST",
+        "InvocationConfig": {
+          "ConnectionArn": "arn:aws:events:ap-south-1:174706800279:connection/Inventory-kit-connections/a98806fe-e61e-49f0-8dfb-8065dbe15ad3"
+        },
+        "RequestBody": {
+          "productId.$": "$.Cart.productId"
+        }
+      },
+      "ResultPath": "$.Tariff",
+      "Next": "GetCustomerProfile"
+    },
+    "GetCustomerProfile": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::http:invoke",
+      "Parameters": {
+        "ApiEndpoint": "https://inventory.clevermoe.com/api/customerprofile/find",
+        "Method": "POST",
+        "InvocationConfig": {
+          "ConnectionArn": "arn:aws:events:ap-south-1:174706800279:connection/Inventory-kit-connections/a98806fe-e61e-49f0-8dfb-8065dbe15ad3"
+        },
+        "RequestBody": {
+          "email": "customer1@example.com"
+        }
+      },
+      "InputPath": null,
+      "ResultPath": "$.Customer",
+      "Next": "GetShippingOptions"
+    },
+    "GetShippingOptions": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::http:invoke",
+      "Parameters": {
+        "ApiEndpoint": "https://inventory.clevermoe.com/api/shippingoption/find",
+        "Method": "POST",
+        "InvocationConfig": {
+          "ConnectionArn": "arn:aws:events:ap-south-1:174706800279:connection/Inventory-kit-connections/a98806fe-e61e-49f0-8dfb-8065dbe15ad3"
+        },
+        "RequestBody": {
+          "isLoyal.$": "$.Customer.ResponseBody.isLoyal",
+          "zone.$": "$.Customer.ResponseBody.addressZone"
+        }
+      },
+      "ResultPath": "$.Shipping",
+      "Next": "GenerateQuotation"
+    },
+    "GenerateQuotation": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::http:invoke",
+      "Parameters": {
+        "ApiEndpoint": "https://inventory.clevermoe.com/api/quotation",
+        "Method": "POST",
+        "InvocationConfig": {
+          "ConnectionArn": "arn:aws:events:ap-south-1:174706800279:connection/Inventory-kit-connections/a98806fe-e61e-49f0-8dfb-8065dbe15ad3"
+        },
+        "RequestBody": {
+          "customerId.$": "$.Customer.ResponseBody.id",
+          "items": [
+            {
+              "productId.$": "$.Cart.productId",
+              "quantity": 5,
+              "unitprice.$": "$.Pricing.ResponseBody.basePrice",
+              "taxAmount.$": "$.Tax.ResponseBody.taxAmount",
+              "dutyRate.$": "$.Tariff.ResponseBody.dutyRate",
+              "discountAmount.$": "$.Pricing.ResponseBody.discount"
+            }
+          ],
+          "deliveryCharge.$": "$.Shipping.ResponseBody[0].cost",
+          "estimatedDeliveryDays.$": "$.Shipping.ResponseBody[0].estimatedDeliveryDays"
+        }
+      },
+      "ResultPath": "$.Quotation",
+      "Next": "FinalizeOrder"
+    },
+    "FinalizeOrder": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::http:invoke",
+      "Parameters": {
+        "ApiEndpoint": "https://inventory.clevermoe.com/api/ordermanagement",
+        "Method": "POST",
+        "InvocationConfig": {
+          "ConnectionArn": "arn:aws:events:ap-south-1:174706800279:connection/Inventory-kit-connections/a98806fe-e61e-49f0-8dfb-8065dbe15ad3"
+        },
+        "RequestBody": {
+          "productId.$": "$.Cart.productId",
+          "pricingId.$": "$.Pricing.ResponseBody.id",
+          "inventoryId.$": "$.Inventory.ResponseBody.id",
+          "taxId.$": "$.Tax.ResponseBody.id",
+          "tariffId.$": "$.Tariff.ResponseBody.id",
+          "customerId.$": "$.Customer.ResponseBody.id",
+          "shippingId.$": "$.Shipping.ResponseBody[0].id",
+          "quotationId.$": "$.Quotation.ResponseBody.id"
+        }
+      },
+      "ResultPath": "$.Order",
+      "Next": "ExtractPurchasedItems"
+    },
+    "ExtractPurchasedItems": {
+      "Type": "Map",
+      "ItemsPath": "$.Order.ResponseBody.quotation.items",
+      "ResultPath": "$.ProductIds",
+      "Iterator": {
+        "StartAt": "GetProductId",
+        "States": {
+          "GetProductId": {
+            "Type": "Pass",
+            "ResultPath": "$",
+            "Parameters": {
+              "productId.$": "$.productId"
+            },
+            "End": true
+          }
+        }
+      },
+      "Next": "FlattenProductIds"
+    },
+    "FlattenProductIds": {
+      "Type": "Pass",
+      "Parameters": {
+        "customerId.$": "$.Order.ResponseBody.customer.id",
+        "purchasedProductIds.$": "$.ProductIds[*].productId"
+      },
+      "ResultPath": "$",
+      "Next": "GetRecommendations"
+    },
+    "GetRecommendations": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::http:invoke",
+      "Parameters": {
+        "ApiEndpoint": "https://inventory.clevermoe.com/recommendations",
+        "Method": "POST",
+        "InvocationConfig": {
+          "ConnectionArn": "arn:aws:events:ap-south-1:174706800279:connection/Inventory-kit-connections/a98806fe-e61e-49f0-8dfb-8065dbe15ad3"
+        },
+        "RequestBody": {
+          "currentCart.$": "$.purchasedProductIds"
+        }
+      },
+      "OutputPath": "$.RecommendationList.ResponseBody",
+      "ResultPath": "$.RecommendationList",
+      "End": true
+    }
+  }
+}
